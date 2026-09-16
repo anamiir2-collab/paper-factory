@@ -295,7 +295,7 @@ const Utils = {
   /* صلاحيات كل دور */
   PERMISSIONS: {
     admin: ['dashboard','production','quality','cutting','inventory','sales','companies','reports','search','notifications','users','settings'],
-    quality: ['dashboard','quality','cutting','inventory','reports','search','notifications'],
+    quality: ['dashboard','production','quality','cutting','inventory','reports','search','notifications'],
     production: ['dashboard','production','cutting','reports','search','notifications'],
     inventory: ['dashboard','inventory','reports','search','notifications'],
     sales: ['dashboard','sales','companies','reports','search','notifications']
