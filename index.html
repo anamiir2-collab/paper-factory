@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>نظام إدارة مصنع الورق</title>
+
+  <!-- Google Fonts: Cairo -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;800&family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/responsive.css">
+</head>
+<body>
+
+  <!-- ============ شاشة تسجيل الدخول ============ -->
+  <div id="loginScreen" class="login-screen">
+    <div class="login-card">
+      <div class="login-logo">
+        <div class="logo-icon">▦</div>
+        <h1>نظام إدارة مصنع الورق</h1>
+        <p>Paper Factory Management System</p>
+      </div>
+      <form id="loginForm" class="login-form">
+        <div class="form-group">
+          <label for="loginUsername">اسم المستخدم</label>
+          <input type="text" id="loginUsername" required autocomplete="off" placeholder="اكتب اسم المستخدم">
+        </div>
+        <div class="form-group">
+          <label for="loginPassword">كلمة المرور</label>
+          <input type="password" id="loginPassword" required placeholder="••••••••">
+        </div>
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input type="checkbox" id="rememberMe">
+            <span>تذكرني على هذا الجهاز</span>
+          </label>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">دخول</button>
+        <div id="loginError" class="login-error"></div>
+      </form>
+      <div class="login-hint">
+        <p>بيانات تجريبية:</p>
+        <ul>
+          <li>المدير: <code>admin</code> / <code>admin123</code></li>
+          <li>الجودة: <code>quality</code> / <code>quality123</code></li>
+          <li>الإنتاج: <code>prod</code> / <code>prod123</code></li>
+          <li>المخزن: <code>store</code> / <code>store123</code></li>
+          <li>المبيعات: <code>sales</code> / <code>sales123</code></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ التطبيق الرئيسي ============ -->
+  <div id="app" class="app hidden">
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <div class="logo-icon small">▦</div>
+        <div>
+          <h2>مصنع الورق</h2>
+          <span class="version">v1.0</span>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav">
+        <ul>
+          <li data-route="dashboard" data-roles="all"><span class="nav-icon">⌂</span> الرئيسية</li>
+          <li data-route="production" data-roles="admin,production"><span class="nav-icon">⚙</span> الإنتاج</li>
+          <li data-route="quality" data-roles="admin,quality"><span class="nav-icon">✓</span> الجودة</li>
+          <li data-route="cutting" data-roles="admin,production,quality"><span class="nav-icon">✂</span> المقص</li>
+          <li data-route="inventory" data-roles="admin,inventory,quality"><span class="nav-icon">▦</span> المخزن</li>
+          <li data-route="sales" data-roles="admin,sales"><span class="nav-icon">$</span> المبيعات</li>
+          <li data-route="companies" data-roles="admin,sales"><span class="nav-icon">▣</span> الشركات</li>
+          <li data-route="reports" data-roles="all"><span class="nav-icon">▤</span> التقارير</li>
+          <li data-route="search" data-roles="all"><span class="nav-icon">⌕</span> البحث</li>
+          <li data-route="notifications" data-roles="all"><span class="nav-icon">!</span> التنبيهات <span id="notifBadge" class="badge-count hidden">0</span></li>
+          <li data-route="users" data-roles="admin"><span class="nav-icon">☺</span> المستخدمون</li>
+          <li data-route="settings" data-roles="admin"><span class="nav-icon">⚙</span> إدارة النظام</li>
+        </ul>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="user-info">
+          <div id="currentUserName">—</div>
+          <div id="currentUserRole" class="user-role">—</div>
+        </div>
+        <button id="logoutBtn" class="btn btn-ghost btn-sm">خروج</button>
+      </div>
+    </aside>
+
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <header class="topbar">
+        <button class="menu-toggle" id="menuToggle">☰</button>
+        <h1 id="pageTitle">الرئيسية</h1>
+        <div class="topbar-actions">
+          <button class="icon-btn" id="quickSearchBtn" title="بحث سريع">⌕</button>
+          <button class="icon-btn notif-btn" id="topbarNotifBtn" title="التنبيهات">!<span id="topbarNotifCount" class="dot hidden"></span></button>
+          <div class="clock" id="liveClock">—</div>
+        </div>
+      </header>
+
+      <div class="page-container" id="pageContainer">
+        <!-- هنا يتم تحميل الصفحات ديناميكياً -->
+      </div>
+    </main>
+
+    <!-- Bottom Nav for mobile -->
+    <nav class="bottom-nav" id="bottomNav">
+      <button data-route="dashboard"><span class="bn-icon">⌂</span><span>الرئيسية</span></button>
+      <button data-route="production"><span class="bn-icon">⚙</span><span>الإنتاج</span></button>
+      <button data-route="quality"><span class="bn-icon">✓</span><span>الجودة</span></button>
+      <button data-route="inventory"><span class="bn-icon">▦</span><span>المخزن</span></button>
+      <button data-route="more"><span class="bn-icon">⋮</span><span>المزيد</span></button>
+    </nav>
+  </div>
+
+  <!-- ============ Modal Container ============ -->
+  <div class="modal-overlay hidden" id="modalOverlay">
+    <div class="modal" id="modal">
+      <div class="modal-header">
+        <h3 id="modalTitle">عنوان</h3>
+        <button class="modal-close" id="modalClose">✕</button>
+      </div>
+      <div class="modal-body" id="modalBody"></div>
+      <div class="modal-footer" id="modalFooter"></div>
+    </div>
+  </div>
+
+  <!-- ============ Toast Container ============ -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- ============ More Menu Drawer (mobile) ============ -->
+  <div class="more-drawer hidden" id="moreDrawer">
+    <div class="more-drawer-header">
+      <h3>القوائم</h3>
+      <button id="moreDrawerClose">✕</button>
+    </div>
+    <ul class="more-drawer-list">
+      <li data-route="cutting">✂ المقص</li>
+      <li data-route="sales">$ المبيعات</li>
+      <li data-route="companies">▣ الشركات</li>
+      <li data-route="reports">▤ التقارير</li>
+      <li data-route="search">⌕ البحث</li>
+      <li data-route="notifications">! التنبيهات</li>
+      <li data-route="users">☺ المستخدمون</li>
+      <li data-route="settings">⚙ إدارة النظام</li>
+    </ul>
+  </div>
+
+  <!-- Scripts - order matters -->
+  <script src="js/utils.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="js/audit.js"></script>
+  <script src="js/notifications.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/production.js"></script>
+  <script src="js/quality.js"></script>
+  <script src="js/cutting.js"></script>
+  <script src="js/inventory.js"></script>
+  <script src="js/companies.js"></script>
+  <script src="js/sales.js"></script>
+  <script src="js/reports.js"></script>
+  <script src="js/users.js"></script>
+  <script src="js/dashboard.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
