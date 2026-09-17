@@ -136,9 +136,16 @@ const Production = {
           </div>
           <div class="form-group">
             <label>الجرام (GSM) <span class="req">*</span></label>
-            <select name="gram" required class="form-control">
-              ${grams.map(g => `<option value="${g}" ${edit && edit.gram == g ? 'selected' : ''}>${g}</option>`).join('')}
-            </select>
+            <input
+               type="number"
+               name="gram"
+               min="80"
+               step="1"
+               required
+               value="${edit ? edit.gram : ''}"
+               class="from-control"
+               placeholder="مثال : 100"
+               >
           </div>
           <div class="form-group">
             <label>الوزن (كجم) <span class="req">*</span></label>
