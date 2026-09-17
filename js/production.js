@@ -149,11 +149,11 @@ const Production = {
           </div>
           <div class="form-group">
             <label>الوزن (كجم) <span class="req">*</span></label>
-            <input type="number" name="weight" step="0.1" required value="${edit ? edit.weight : ''}" class="form-control" placeholder="مثال: 1850">
+            <input type="number" name="weight" step="0.1" required value="${edit ? edit.weight : ''}" class="form-control" placeholder="مثال: 2500">
           </div>
           <div class="form-group">
             <label>العرض (سم) <span class="req">*</span></label>
-            <input type="number" name="width" step="1" required value="${edit ? edit.width : ''}" class="form-control" placeholder="مثال: 2400">
+            <input type="number" name="width" step="1" required value="${edit ? edit.width : ''}" class="form-control" placeholder="مثال: 240">
           </div>
         </div>
         <div class="form-group mt-2">
