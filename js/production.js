@@ -85,7 +85,7 @@ const Production = {
         <td>${Utils.esc(r.paperType)}</td>
         <td>${Utils.esc(r.gram)} GSM</td>
         <td>${Utils.formatNum(r.weight)} كجم</td>
-        <td>${Utils.formatNum(r.width)} مم</td>
+        <td>${Utils.formatNum(r.width)} سم</td>
         <td><span class="badge ${st.badge}">${st.label}</span></td>
         <td>
           <div class="row-actions">
