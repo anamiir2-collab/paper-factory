@@ -102,8 +102,8 @@ const Production = {
   openAddForm(editId = null) {
     const edit = editId ? Storage.find('rolls', editId) : null;
     const settings = Storage.obj('settings');
-    const paperTypes = settings.defaultPaperTypes || ['فلوت','تست معالج'];
-    const grams = settings.defaultGrams || [125, 150];
+    const paperTypes = settings.defaultPaperTypes || ['فلوت فاخر','توب لاينر','تست معالج'];
+    
 
     const body = `
       <form id="rollForm">
@@ -152,7 +152,7 @@ const Production = {
             <input type="number" name="weight" step="0.1" required value="${edit ? edit.weight : ''}" class="form-control" placeholder="مثال: 1850">
           </div>
           <div class="form-group">
-            <label>العرض (مم) <span class="req">*</span></label>
+            <label>العرض (سم) <span class="req">*</span></label>
             <input type="number" name="width" step="1" required value="${edit ? edit.width : ''}" class="form-control" placeholder="مثال: 2400">
           </div>
         </div>
