@@ -47,15 +47,18 @@ const Quality = {
         <div class="card-body" style="padding:0">
           <div class="table-wrap">
             <table class="data-table">
-              <thead><tr><th>الرول</th><th>نوع البكرة</th><th>التاريخ</th><th>النتيجة</th><th>الفاحص</th><th></th></tr></thead>
+              <thead><tr><th>الرول</th><th>الشركة</th><th>نوع البكرة</th><th>الجرام</th><th>التاريخ</th><th>النتيجة</th><th>الفاحص</th><th></th></tr></thead>
               <tbody>
-                ${tests.length === 0 ? `<tr><td colspan="6"><div class="empty-state"><p>لا توجد اختبارات. اضغط "+ اختبار جديد"</p></div></td></tr>` : ''}
+                ${tests.length === 0 ? `<tr><td colspan="8"><div class="empty-state"><p>لا توجد اختبارات. اضغط "+ اختبار جديد"</p></div></td></tr>` : ''}
                 ${tests.map(t => {
                   const roll = Storage.find('rolls', t.rollId);
                   const user = Storage.find('users', t.inspector);
+                  const company = t.companyId ? Storage.find('companies', t.companyId) : null;
                   return `<tr>
                     <td class="fw-600">${Utils.esc(t.rollNumber)}</td>
+                    <td>${company ? `<span class="badge badge-blue">${Utils.esc(company.name)}</span>` : '<span class="text-muted">—</span>'}</td>
                     <td>${Utils.esc(t.coilType)}</td>
+                    <td>${Utils.esc(t.gram ?? roll?.gram ?? '—')}</td>
                     <td>${Utils.formatDateAr(t.createdAt)}</td>
                     <td><span class="badge ${t.overallPass ? 'badge-green' : 'badge-red'}">${t.overallPass ? 'مطابق' : 'غير مطابق'}</span></td>
                     <td>${user ? Utils.esc(user.name) : '—'}</td>
@@ -72,10 +75,17 @@ const Quality = {
 
   openTestForm(rollId = null) {
     const rolls = Storage.list('rolls').filter(r => !r.archived);
+    const companies = Storage.list('companies').filter(c => c.active);
+    const settings = Storage.obj('settings');
+    const grams = settings.defaultGrams || [125, 150, 175];
+
     const rollOptions = rolls.map(r => {
       const hasTest = Storage.list('qualityTests').find(t => t.rollId === r.id);
       return `<option value="${r.id}" ${rollId === r.id ? 'selected' : ''}>${Utils.esc(r.rollNumber)} - ${Utils.esc(r.paperType)} ${Utils.esc(r.gram)} GSM</option>`;
     }).join('');
+
+    const companyOptions = `<option value="">عامة (بدون شركة محددة)</option>` +
+      companies.map(c => `<option value="${c.id}">${Utils.esc(c.name)} (${Utils.esc(c.code)})</option>`).join('');
 
     const body = `
       <form id="qualityForm">
@@ -88,10 +98,24 @@ const Quality = {
             </select>
           </div>
           <div class="form-group">
-            <label>نوع البكرة <span class="req">*</span></label>
-            <select name="coilType" required class="form-control" onchange="Quality.loadSpec()">
+            <label>الشركة</label>
+            <select name="companyId" id="companySelect" class="form-control" onchange="Quality.loadSpec()">
+              ${companyOptions}
+            </select>
+            <div class="form-hint">اختر الشركة لتحميل مواصفاتها الخاصة إن وُجدت</div>
+          </div>
+          <div class="form-group">
+            <label>نوع الورق <span class="req">*</span></label>
+            <select name="coilType" id="coilTypeSelect" required class="form-control" onchange="Quality.loadSpec()">
               <option value="">اختر النوع...</option>
               ${Utils.COIL_TYPES.map(t => `<option value="${t}">${t}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group">
+            <label>الجرام <span class="req">*</span></label>
+            <select name="gram" id="gramSelect" required class="form-control" onchange="Quality.loadSpec()">
+              <option value="">اختر الجرام...</option>
+              ${grams.map(g => `<option value="${g}">${g}</option>`).join('')}
             </select>
           </div>
         </div>
@@ -115,35 +139,85 @@ const Quality = {
     if (!rid) return;
     const roll = Storage.find('rolls', rid);
     /* افتراض نوع البكرة حسب نوع الورق */
-    const typeSelect = document.querySelector('select[name="coilType"]');
+    const typeSelect = document.getElementById('coilTypeSelect');
     if (typeSelect && !typeSelect.value) {
       typeSelect.value = roll.paperType === 'تست معالج' ? 'تست معالج' : 'فلوت';
+    }
+    /* افتراض الجرام من بيانات الرول */
+    const gramSelect = document.getElementById('gramSelect');
+    if (gramSelect && !gramSelect.value && roll.gram) {
+      /* إذا كان جرام الرول ضمن الخيارات اختره، وإلا أضفه */
+      const exists = Array.from(gramSelect.options).some(o => o.value == roll.gram);
+      if (!exists) {
+        const opt = document.createElement('option');
+        opt.value = roll.gram;
+        opt.textContent = roll.gram;
+        gramSelect.appendChild(opt);
+      }
+      gramSelect.value = roll.gram;
     }
     this.loadSpec();
   },
 
   loadSpec() {
     const rid = document.getElementById('rollSelect').value;
-    const type = document.querySelector('select[name="coilType"]').value;
+    const companyId = document.getElementById('companySelect').value || null;
+    const type = document.getElementById('coilTypeSelect').value;
+    const gramVal = document.getElementById('gramSelect').value;
     const hint = document.getElementById('specHint');
-    if (!rid || !type) {
+
+    if (!rid || !type || !gramVal) {
       hint.classList.add('hidden');
       this._renderTestRows();
       return;
     }
+
     const roll = Storage.find('rolls', rid);
-    const specs = Storage.list('qualitySpecs').find(s =>
-      s.paperType === type && s.gram == roll.gram
-    );
-    if (specs) {
-      hint.classList.remove('hidden');
-      hint.innerHTML = `<strong>الحدود التلقائية:</strong> تم تحميل المواصفات القياسية لنوع ${Utils.esc(type)} ${Utils.esc(roll.gram)} GSM. ستطبق تلقائياً عند الحفظ.`;
-    } else {
-      hint.classList.remove('hidden');
-      hint.className = 'alert alert-warning';
-      hint.innerHTML = `<strong>لا توجد مواصفات قياسية</strong> لهذا النوع/الجرام. أدخل القيم يدوياً.`;
+    const gram = parseInt(gramVal);
+
+    /* البحث بالأولوية:
+       1. مواصفة خاصة بالشركة (companyId + paperType + gramValue)
+       2. مواصفة عامة (companyId = null + paperType + gramValue)
+       3. لا مواصفة — إدخال يدوي */
+    const specs = Storage.list('qualitySpecs');
+    let spec = null;
+    let source = 'manual';
+
+    if (companyId) {
+      const company = Storage.find('companies', companyId);
+      const companySpec = specs.find(s =>
+        s.companyId === companyId && s.paperType === type && s.gramValue == gram
+      );
+      if (companySpec) {
+        spec = companySpec;
+        source = 'company';
+      }
     }
-    this._renderTestRows(specs);
+
+    if (!spec) {
+      const generalSpec = specs.find(s =>
+        (s.companyId === null || s.companyId === undefined) &&
+        s.paperType === type && s.gramValue == gram
+      );
+      if (generalSpec) {
+        spec = generalSpec;
+        source = 'general';
+      }
+    }
+
+    hint.classList.remove('hidden');
+    if (spec && source === 'company') {
+      const company = Storage.find('companies', companyId);
+      hint.className = 'alert alert-success';
+      hint.innerHTML = `<strong>تم تحميل مواصفة الجودة الخاصة بشركة ${Utils.esc(company?.name || '')}.</strong> نوع ${Utils.esc(type)} ${Utils.esc(gram)} GSM — ستطبق الحدود تلقائياً عند الحفظ.`;
+    } else if (spec && source === 'general') {
+      hint.className = 'alert alert-info';
+      hint.innerHTML = `<strong>لم توجد مواصفة خاصة للشركة — تم استخدام المواصفة العامة.</strong> نوع ${Utils.esc(type)} ${Utils.esc(gram)} GSM.`;
+    } else {
+      hint.className = 'alert alert-warning';
+      hint.innerHTML = `<strong>لا توجد مواصفة جودة لهذا النوع.</strong> يمكنك إدخال القيم يدوياً.`;
+    }
+    this._renderTestRows(spec);
   },
 
   _renderTestRows(spec = null) {
@@ -200,9 +274,11 @@ const Quality = {
     const fd = new FormData(form);
     const rollId = fd.get('rollId');
     const coilType = fd.get('coilType');
+    const companyId = fd.get('companyId') || null;
+    const gram = parseInt(fd.get('gram'));
 
-    if (!rollId || !coilType) {
-      Toast.error('بيانات ناقصة', 'اختر الرول ونوع البكرة');
+    if (!rollId || !coilType || !gram) {
+      Toast.error('بيانات ناقصة', 'اختر الرول ونوع البكرة والجرام');
       return;
     }
 
@@ -233,6 +309,8 @@ const Quality = {
       rollId,
       rollNumber: roll.rollNumber,
       coilType,
+      companyId,
+      gram,
       tests,
       overallPass: allPass,
       inspector: user.id,
@@ -241,7 +319,7 @@ const Quality = {
     Storage.insert('qualityTests', test);
     Storage.update('rolls', rollId, { status: 'in_quality' });
     Audit.log(allPass ? 'quality_pass' : 'quality_fail', 'qualityTest', test.id, {
-      notes: `اختبار جودة للرول ${roll.rollNumber} - ${allPass ? 'مطابق' : 'غير مطابق'}`
+      notes: `اختبار جودة للرول ${roll.rollNumber}${companyId ? ` - شركة ${Storage.find('companies', companyId)?.name || ''}` : ' - عام'} - ${allPass ? 'مطابق' : 'غير مطابق'}`
     });
 
     Toast.success('تم الحفظ', `تم تسجيل اختبار الجودة - ${allPass ? 'مطابق' : 'غير مطابق'}`);
@@ -254,6 +332,7 @@ const Quality = {
     const t = Storage.find('qualityTests', id);
     if (!t) return;
     const user = Storage.find('users', t.inspector);
+    const company = t.companyId ? Storage.find('companies', t.companyId) : null;
     const tests = [
       { key: 'tensileMD', label: 'الشد الطولي' },
       { key: 'tensileCD', label: 'الشد العرضي' },
@@ -264,6 +343,17 @@ const Quality = {
       { key: 'gram', label: 'الجرام' }
     ];
     const body = `
+      <div class="grid-2 mb-3">
+        <div class="alert alert-info">
+          <strong>الرول:</strong> ${Utils.esc(t.rollNumber)}<br>
+          <strong>نوع الورق:</strong> ${Utils.esc(t.coilType)}<br>
+          <strong>الجرام:</strong> ${Utils.esc(t.gram ?? '—')}
+        </div>
+        <div class="alert ${company ? 'alert-success' : 'alert-warning'}">
+          <strong>الشركة:</strong> ${company ? Utils.esc(company.name) : 'عامة (بدون شركة محددة)'}<br>
+          <strong>المواصفة المطبقة:</strong> ${company ? 'مواصفة خاصة بالشركة' : 'مواصفة عامة أو إدخال يدوي'}
+        </div>
+      </div>
       <div class="mb-3">
         <span class="badge ${t.overallPass ? 'badge-green' : 'badge-red'}" style="font-size:14px;padding:6px 16px">
           ${t.overallPass ? '✓ مطابق' : '✕ غير مطابق'}
@@ -308,13 +398,18 @@ const Quality = {
         <div class="card-body" style="padding:0">
           <div class="table-wrap">
             <table class="data-table">
-              <thead><tr><th>نوع الورق</th><th>الجرام</th><th>الشد الطولي</th><th>الشد العرضي</th><th>الانفجار</th><th>التشرب</th><th>الرطوبة</th><th>SCT</th><th></th></tr></thead>
+              <thead><tr><th>الشركة</th><th>نوع الورق</th><th>الجرام</th><th>الشد الطولي</th><th>الشد العرضي</th><th>الانفجار</th><th>التشرب</th><th>الرطوبة</th><th>SCT</th><th></th></tr></thead>
               <tbody>
-                ${specs.length === 0 ? `<tr><td colspan="9"><div class="empty-state"><p>لا توجد مواصفات. اضغط "+ مواصفات جديدة"</p></div></td></tr>` : ''}
-                ${specs.map(s => `
-                  <tr>
+                ${specs.length === 0 ? `<tr><td colspan="10"><div class="empty-state"><p>لا توجد مواصفات. اضغط "+ مواصفات جديدة"</p></div></td></tr>` : ''}
+                ${specs.map(s => {
+                  const company = s.companyId ? Storage.find('companies', s.companyId) : null;
+                  const companyCell = company
+                    ? `<span class="badge badge-blue">${Utils.esc(company.name)}</span>`
+                    : `<span class="badge badge-gray">عامة</span>`;
+                  return `<tr>
+                    <td>${companyCell}</td>
                     <td class="fw-600">${Utils.esc(s.paperType)}</td>
-                    <td>${Utils.esc(s.gram)} GSM</td>
+                    <td>${Utils.esc(s.gramValue ?? s.gram ?? '—')} GSM</td>
                     <td>${s.tensileMD.min}-${s.tensileMD.max}</td>
                     <td>${s.tensileCD.min}-${s.tensileCD.max}</td>
                     <td>${s.burst.min}-${s.burst.max}</td>
@@ -327,8 +422,8 @@ const Quality = {
                         <button class="btn btn-ghost btn-sm" onclick="Quality.deleteSpec('${s.id}')">✕</button>
                       ` : '—'}
                     </td>
-                  </tr>
-                `).join('')}
+                  </tr>`;
+                }).join('')}
               </tbody>
             </table>
           </div>
@@ -337,11 +432,18 @@ const Quality = {
     `;
   },
 
-  openSpecForm(editId = null) {
+  openSpecForm(editId = null, presetCompanyId = null) {
     const edit = editId ? Storage.find('qualitySpecs', editId) : null;
     const settings = Storage.obj('settings');
     const types = settings.defaultPaperTypes || ['فلوت','تست معالج'];
     const grams = settings.defaultGrams || [125, 150, 175];
+    const companies = Storage.list('companies').filter(c => c.active);
+
+    /* presetCompanyId من نموذج الشركة — يثبت الشركة مسبقاً */
+    const initialCompanyId = edit ? edit.companyId : (presetCompanyId || null);
+
+    const companyOptions = `<option value="" ${!initialCompanyId ? 'selected' : ''}>عامة (تطبق على كل الشركات بدون مواصفة خاصة)</option>` +
+      companies.map(c => `<option value="${c.id}" ${initialCompanyId === c.id ? 'selected' : ''}>${Utils.esc(c.name)} (${Utils.esc(c.code)})</option>`).join('');
 
     const tests = [
       { key: 'tensileMD', label: 'الشد الطولي', unit: 'kN/m' },
@@ -357,6 +459,13 @@ const Quality = {
       <form id="specForm">
         <div class="form-grid mb-3">
           <div class="form-group">
+            <label>الشركة</label>
+            <select name="companyId" class="form-control" ${presetCompanyId ? 'disabled' : ''}>
+              ${companyOptions}
+            </select>
+            <div class="form-hint">اختر "عامة" لإنشاء مواصفة تطبق على كل الشركات بدون مواصفة خاصة</div>
+          </div>
+          <div class="form-group">
             <label>نوع الورق <span class="req">*</span></label>
             <select name="paperType" required class="form-control">
               ${types.map(t => `<option value="${Utils.esc(t)}" ${edit && edit.paperType === t ? 'selected' : ''}>${Utils.esc(t)}</option>`).join('')}
@@ -365,7 +474,7 @@ const Quality = {
           <div class="form-group">
             <label>الجرام <span class="req">*</span></label>
             <select name="gram" required class="form-control">
-              ${grams.map(g => `<option value="${g}" ${edit && edit.gram == g ? 'selected' : ''}>${g}</option>`).join('')}
+              ${grams.map(g => `<option value="${g}" ${edit && edit.gramValue == g ? 'selected' : ''}>${g}</option>`).join('')}
             </select>
           </div>
         </div>
@@ -388,17 +497,24 @@ const Quality = {
     `;
     const footer = `
       <button class="btn btn-ghost" onclick="Modal.close()">إلغاء</button>
-      <button class="btn btn-primary" onclick="Quality.saveSpec(${edit ? `'${edit.id}'` : 'null'})">حفظ</button>
+      <button class="btn btn-primary" onclick="Quality.saveSpec(${edit ? `'${edit.id}'` : 'null'}, ${presetCompanyId ? `'${presetCompanyId}'` : 'null'})">حفظ</button>
     `;
     Modal.open(edit ? 'تعديل المواصفات' : 'مواصفات جديدة', body, footer, 'lg');
   },
 
-  saveSpec(editId) {
+  saveSpec(editId, presetCompanyId = null) {
     const form = document.getElementById('specForm');
     const fd = new FormData(form);
+
+    /* إذا كان الحقل معطّل (preset) استخدم القيمة المثبّتة */
+    const companyInput = form.querySelector('select[name="companyId"]');
+    let companyId = companyInput.value || null;
+    if (presetCompanyId) companyId = presetCompanyId;
+
     const data = {
+      companyId,
       paperType: fd.get('paperType'),
-      gram: parseInt(fd.get('gram'))
+      gramValue: parseInt(fd.get('gram'))   /* معرف الجرام (مستقل عن حقل اختبار الجرام) */
     };
     const keys = ['tensileMD','tensileCD','burst','absorbency','moisture','sct','gram'];
     keys.forEach(k => {
@@ -412,36 +528,52 @@ const Quality = {
       };
     });
 
-    /* التحقق من التفرّد */
+    /* التحقق من التفرّد — المفتاح: companyId + paperType + gramValue */
     const existing = Storage.list('qualitySpecs').find(s =>
-      s.paperType === data.paperType && s.gram == data.gram && s.id !== editId
+      (s.companyId ?? null) === (data.companyId ?? null) &&
+      s.paperType === data.paperType && s.gramValue == data.gramValue && s.id !== editId
     );
     if (existing) {
-      Toast.error('مكرر', 'توجد مواصفات لهذا النوع والجرام مسبقاً');
+      const company = data.companyId ? Storage.find('companies', data.companyId) : null;
+      const label = company ? `شركة ${company.name}` : 'مواصفة عامة';
+      Toast.error('مكرر', `توجد مواصفة لهذه التركيبة (${label} - ${data.paperType} ${data.gramValue}) مسبقاً`);
       return;
     }
 
+    const companyLabel = data.companyId ? (Storage.find('companies', data.companyId)?.name || 'شركة') : 'عامة';
+
     if (editId) {
       Storage.update('qualitySpecs', editId, data);
-      Audit.log('update','qualitySpec', editId, { notes: 'تعديل مواصفات' });
-      Toast.success('تم', 'تم تعديل المواصفات');
+      Audit.log('update','qualitySpec', editId, { notes: `تعديل مواصفة ${companyLabel} - ${data.paperType} ${data.gramValue}` });
+      Toast.success('تم', 'تم تعديل المواصفة');
     } else {
       data.id = Utils.uid('qs');
       data.createdAt = Utils.nowDateTime();
       Storage.insert('qualitySpecs', data);
-      Audit.log('create','qualitySpec', data.id, { notes: `مواصفات جديدة: ${data.paperType} ${data.gram}` });
-      Toast.success('تم', 'تمت إضافة المواصفات');
+      Audit.log('create','qualitySpec', data.id, { notes: `مواصفة جديدة: ${companyLabel} - ${data.paperType} ${data.gramValue}` });
+      Toast.success('تم', `تمت إضافة المواصفة (${companyLabel} - ${data.paperType} ${data.gramValue})`);
     }
     Modal.close();
     this._renderSpecs();
+    /* إعادة فتح نموذج الشركة إن كانت المواصفة أُنشئت من داخله */
+    if (presetCompanyId) {
+      setTimeout(() => {
+        if (typeof Companies !== 'undefined') {
+          Companies.openForm(presetCompanyId);
+        }
+      }, 100);
+    } else if (App.currentRoute === 'companies') {
+      App.navigate('companies');
+    }
   },
 
   deleteSpec(id) {
-    Modal.confirm('حذف المواصفات؟', () => {
+    Modal.confirm('حذف المواصفة؟', () => {
       Storage.delete('qualitySpecs', id);
-      Audit.log('delete','qualitySpec', id, { notes: 'حذف مواصفات' });
+      Audit.log('delete','qualitySpec', id, { notes: 'حذف مواصفة' });
       Toast.success('تم', 'تم الحذف');
       this._renderSpecs();
+      if (App.currentRoute === 'companies') App.navigate('companies');
     });
   },
 

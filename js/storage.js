@@ -142,6 +142,44 @@ const Storage = {
       this._seedRolls();
       this.set('initialized', true);
     }
+    /* ضمان توافق البيانات القديمة مع النسخة الجديدة (دائماً) */
+    this._migrateQualitySpecs();
+  },
+
+  /* توافق عكسي: إضافة companyId = null للمواصفات القديمة التي لا تملك الحقل
+     + إصلاح تعارض مفتاح gram (المعرف يُحفظ في gramValue، حقل الاختبار يبقى gram) */
+  _migrateQualitySpecs() {
+    const specs = this.list('qualitySpecs');
+    if (!specs.length) return;
+    let changed = false;
+    const migrated = specs.map(s => {
+      const out = { ...s };
+      /* 1) companyId: null افتراضياً للبيانات القديمة */
+      if (out.companyId === undefined || out.companyId === '') {
+        out.companyId = null;
+        changed = true;
+      }
+      /* 2) ضمان وجود gramValue (المعرف الرقمي للجرام)
+            في النسخة القديمة كان حقل gram يُستخدم مرتين: مرة كمعرف (125) ومرة كحقل اختبار
+            ({min,max,unit}). عند الكتابة فوق الحقل يفقد المعرف قيمته.
+            نسترجع المعرف من: gramValue إن وُجد، أو gram إن كان رقم، أو من نهاية id (qs_f125 → 125). */
+      if (out.gramValue === undefined) {
+        if (typeof out.gram === 'number') {
+          out.gramValue = out.gram;
+        } else if (out.id && /(\d+)$/.test(out.id)) {
+          const m = out.id.match(/(\d+)$/);
+          out.gramValue = parseInt(m[1]);
+        } else {
+          out.gramValue = null;
+        }
+        changed = true;
+      }
+      return out;
+    });
+    if (changed) {
+      this.set('qualitySpecs', migrated);
+      console.info('[Paper Factory] تم تحديث مواصفات الجودة القديمة: companyId=null + gramValue مسترجع');
+    }
   },
 
   /* بيانات المستخدمين التجريبية */
@@ -240,7 +278,7 @@ const Storage = {
   _seedQualitySpecs() {
     const specs = [
       {
-        id: 'qs_f125', paperType: 'فلوت', gram: 125,
+        id: 'qs_f125', companyId: null, paperType: 'فلوت', gramValue: 125,
         tensileMD: { min: 4.5, max: 7.0, unit: 'kN/m' },
         tensileCD: { min: 2.0, max: 4.0, unit: 'kN/m' },
         burst: { min: 250, max: 450, unit: 'kPa' },
@@ -251,7 +289,7 @@ const Storage = {
         createdAt: Utils.nowDateTime()
       },
       {
-        id: 'qs_t125', paperType: 'تست معالج', gram: 125,
+        id: 'qs_t125', companyId: null, paperType: 'تست معالج', gramValue: 125,
         tensileMD: { min: 5.5, max: 8.0, unit: 'kN/m' },
         tensileCD: { min: 2.5, max: 4.5, unit: 'kN/m' },
         burst: { min: 300, max: 500, unit: 'kPa' },

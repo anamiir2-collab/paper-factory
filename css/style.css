@@ -96,6 +96,28 @@ input, select, textarea { font-family: inherit; font-size: 14px; }
   font-weight: 700;
 }
 .logo-icon.small { width: 40px; height: 40px; font-size: 20px; }
+
+/* لوجو رسمي من assets/logo.svg — يحافظ على الأبعاد بدون تشويه */
+.logo-img {
+  display: block;
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 16px;
+  border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, var(--c-navy), var(--c-blue));
+  padding: 6px;
+  object-fit: contain;
+  object-position: center;
+  box-shadow: 0 4px 12px rgba(30,58,95,.18);
+}
+.logo-img.small {
+  width: 40px;
+  height: 40px;
+  margin: 0;
+  padding: 4px;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
 .login-logo h1 { font-size: 20px; font-weight: 700; color: var(--c-navy); }
 .login-logo p { font-size: 12px; color: var(--c-text-muted); margin-top: 4px; }
 

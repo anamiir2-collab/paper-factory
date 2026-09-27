@@ -9,7 +9,10 @@ const Companies = {
       <div class="card">
         <div class="card-header">
           <h3>▣ الشركات</h3>
-          ${Auth.isAdmin() || Auth.can('sales') ? `<button class="btn btn-primary" onclick="Companies.openForm()">+ شركة جديدة</button>` : ''}
+          <div class="actions" style="display:flex;gap:8px;flex-wrap:wrap">
+            ${(Auth.isAdmin() || Auth.can('sales')) ? `<button class="btn btn-outline" onclick="Companies.openImport()">⇪ استيراد شركات</button>` : ''}
+            ${(Auth.isAdmin() || Auth.can('sales')) ? `<button class="btn btn-primary" onclick="Companies.openForm()">+ شركة جديدة</button>` : ''}
+          </div>
         </div>
         <div class="card-body" style="padding:0">
           <div class="table-wrap">
@@ -140,6 +143,33 @@ const Companies = {
           <label>ملاحظات</label>
           <textarea name="notes" rows="2" class="form-control">${edit ? Utils.esc(edit.notes) : ''}</textarea>
         </div>
+
+        <div class="quality-specs-section" id="qualitySpecsSection">
+          <h4 class="mb-2 mt-3" style="color:var(--c-navy);border-top:1px dashed var(--c-border);padding-top:16px">
+            مواصفات الجودة
+          </h4>
+          <div class="form-group">
+            <label class="checkbox-label">
+              <input type="checkbox" id="hasSpecialSpecs" onchange="Companies.toggleSpecsSection()">
+              <span>هذه الشركة لديها مواصفة جودة خاصة</span>
+            </label>
+            <div class="form-hint">
+              عند التفعيل يمكنك إضافة عدة مواصفات خاصة بهذه الشركة (لكل تركيبة نوع ورق + جرام مواصفة مستقلة).
+              إذا لم تفعل، ستستخدم الشركة المواصفات العامة تلقائياً.
+            </div>
+          </div>
+          <div id="specsPanel" class="hidden">
+            <div class="alert alert-info mb-3">
+              <strong>المواصفات الخاصة بهذه الشركة</strong>
+              <div id="companySpecsList" style="margin-top:8px"></div>
+              <div style="margin-top:8px">
+                <button type="button" class="btn btn-outline btn-sm" onclick="Companies.addSpecForCompany(${edit ? `'${edit.id}'` : 'null'})">
+                  + إضافة مواصفة جديدة
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       </form>
     `;
     const footer = `
@@ -153,6 +183,116 @@ const Companies = {
       cb.addEventListener('change', () => {
         cb.closest('.checkbox-item').classList.toggle('checked', cb.checked);
       });
+    });
+
+    /* تهيئة قسم مواصفات الجودة */
+    this._initSpecsSection(edit ? edit.id : null);
+  },
+
+  /* تهيئة قسم المواصفات — يفحص إن كان للشركة مواصفات خاصة */
+  _initSpecsSection(companyId) {
+    const hasSpecs = companyId
+      ? Storage.list('qualitySpecs').some(s => s.companyId === companyId)
+      : false;
+    const cb = document.getElementById('hasSpecialSpecs');
+    if (hasSpecs) {
+      cb.checked = true;
+      /* لا يمكن إلغاء التفعيل إن كانت هناك مواصفات — يجب حذفها أولاً */
+      cb.addEventListener('click', (e) => {
+        if (!cb.checked && Storage.list('qualitySpecs').some(s => s.companyId === companyId)) {
+          e.preventDefault();
+          Toast.warning('لا يمكن الإلغاء', 'لا يمكن إلغاء التفعيل طالما هناك مواصفات خاصة محفوظة. احذفها أولاً من القائمة بالأسفل.');
+          cb.checked = true;
+        }
+      });
+    }
+    this.toggleSpecsSection();
+  },
+
+  toggleSpecsSection() {
+    const cb = document.getElementById('hasSpecialSpecs');
+    const panel = document.getElementById('specsPanel');
+    if (cb.checked) {
+      panel.classList.remove('hidden');
+      this._renderCompanySpecsList();
+    } else {
+      panel.classList.add('hidden');
+    }
+  },
+
+  /* عرض قائمة المواصفات الخاصة بالشركة الحالية (إن وُجدت) */
+  _renderCompanySpecsList() {
+    /* نحتاج معرفة الشركة الحالية — نأخذها من زر التعديل الذي فُتح */
+    /* نقرأها من الخاصية data على زر الإضافة */
+    const addBtn = document.querySelector('button[onclick^="Companies.addSpecForCompany"]');
+    let companyId = null;
+    if (addBtn) {
+      const m = addBtn.getAttribute('onclick').match(/addSpecForCompany\('([^']+)'\)/);
+      if (m) companyId = m[1];
+      else if (addBtn.getAttribute('onclick').includes('addSpecForCompany(null)')) {
+        companyId = null;
+      }
+    }
+    const list = document.getElementById('companySpecsList');
+    if (!list) return;
+
+    if (!companyId) {
+      list.innerHTML = '<div class="text-muted" style="font-size:12px">سيتم حفظ الشركة أولاً ثم يمكنك إضافة المواصفات.</div>';
+      return;
+    }
+
+    const specs = Storage.list('qualitySpecs').filter(s => s.companyId === companyId);
+    if (!specs.length) {
+      list.innerHTML = '<div class="text-muted" style="font-size:12px">لا توجد مواصفات خاصة بعد. اضغط "+ إضافة مواصفة جديدة".</div>';
+      return;
+    }
+    list.innerHTML = `
+      <div class="table-wrap">
+        <table class="data-table" style="font-size:12px">
+          <thead><tr><th>نوع الورق</th><th>الجرام</th><th>الحدود</th><th></th></tr></thead>
+          <tbody>
+            ${specs.map(s => `
+              <tr>
+                <td class="fw-600">${Utils.esc(s.paperType)}</td>
+                <td>${Utils.esc(s.gramValue ?? s.gram ?? '—')} GSM</td>
+                <td style="font-size:11px">
+                  شد: ${s.tensileMD.min}-${s.tensileMD.max} •
+                  انفجار: ${s.burst.min}-${s.burst.max} •
+                  رطوبة: ${s.moisture.min}-${s.moisture.max}
+                </td>
+                <td>
+                  <button type="button" class="btn btn-outline btn-sm" onclick="Quality.openSpecForm('${s.id}', '${companyId}')">✎</button>
+                  <button type="button" class="btn btn-ghost btn-sm" onclick="Companies.deleteSpec('${s.id}')">✕</button>
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+  },
+
+  /* فتح نموذج مواصفة جديدة مرتبطة بالشركة الحالية */
+  addSpecForCompany(companyId) {
+    if (!companyId) {
+      Toast.warning('احفظ الشركة أولاً', 'يجب حفظ الشركة قبل إضافة مواصفات خاصة. اضغط "حفظ" ثم عاود فتح الشركة لتضاف المواصفات.');
+      return;
+    }
+    /* إغلاق نموذج الشركة الحالي قبل فتح نموذج المواصفة.
+       Quality.saveSpec سيعيد فتح نموذج الشركة تلقائياً بعد الحفظ لوجود presetCompanyId. */
+    Modal.close();
+    setTimeout(() => {
+      Quality.openSpecForm(null, companyId);
+    }, 100);
+  },
+
+  /* حذف مواصفة من داخل نموذج الشركة */
+  deleteSpec(specId) {
+    Modal.confirm('حذف المواصفة الخاصة؟', () => {
+      Storage.delete('qualitySpecs', specId);
+      Audit.log('delete','qualitySpec', specId, { notes: 'حذف مواصفة خاصة من نموذج الشركة' });
+      Toast.success('تم', 'تم حذف المواصفة');
+      this._renderCompanySpecsList();
     });
   },
 
@@ -291,5 +431,310 @@ const Companies = {
       Toast.success('تم', `تم ${c.active ? 'إيقاف' : 'تنشيط'} الشركة`);
       App.navigate('companies');
     });
+  },
+
+  /* ============ استيراد الشركات من ملف CSV / JSON ============ */
+
+  /* أعمدة الـ CSV — بنفس الترتيب الذي يُصدّره القالب */
+  CSV_HEADERS: ['الاسم', 'الكود', 'أقصى وصلات', 'المقاسات', 'الجرامات', 'الأنواع', 'المشاكل الممنوعة', 'الحالة', 'ملاحظات'],
+
+  openImport() {
+    const body = `
+      <div class="alert alert-info">
+        <strong>استيراد شركات من ملف</strong>
+        <p style="margin-top:6px;font-size:13px">
+          الصيغ المدعومة: <code>CSV</code> و <code>JSON</code>.<br>
+          ارفع الملف لمعاينة الشركات قبل الحفظ. ستظهر أي أخطاء تحقق سطراً بسطر.
+        </p>
+      </div>
+      <div class="form-grid mb-3">
+        <div class="form-group">
+          <label>ملف الشركات</label>
+          <input type="file" id="importFile" accept=".csv,.json,text/csv,application/json" class="form-control" onchange="Companies.onFilePicked(event)">
+        </div>
+        <div class="form-group" style="display:flex;align-items:flex-end">
+          <button type="button" class="btn btn-outline" onclick="Companies.downloadTemplate()">⇩ تنزيل قالب CSV</button>
+        </div>
+      </div>
+      <div id="importPreview"></div>
+    `;
+    const footer = `
+      <button class="btn btn-ghost" onclick="Modal.close()">إلغاء</button>
+      <button class="btn btn-primary" id="confirmImportBtn" onclick="Companies.confirmImport()" disabled>حفظ الشركات</button>
+    `;
+    Modal.open('استيراد شركات', body, footer, 'lg');
+  },
+
+  /* تنزيل قالب CSV مع صف تجريبي */
+  downloadTemplate() {
+    const headers = this.CSV_HEADERS;
+    const sampleRows = [
+      ['شركة A', 'A', '3', '190|220|240', '125|150', 'فلوت|تست معالج', 'قطع|تلسكوب', 'نشطة', 'عميل مميز'],
+      ['شركة B', 'B', '5', '190', '125', 'فلوت', '', 'نشطة', ''],
+      ['شركة C', 'C', '4', '', '', '', '', 'متوقفة', 'تقبل كل المقاسات']
+    ];
+    const csv = Utils.arrayToCSV(sampleRows, headers);
+    Utils.download('companies-template.csv', csv, 'text/csv');
+    Toast.success('تم', 'تم تنزيل القالب');
+  },
+
+  /* اختيار الملف → قراءة + تحويل + معاينة */
+  onFilePicked(event) {
+    const file = event.target.files[0];
+    const preview = document.getElementById('importPreview');
+    const confirmBtn = document.getElementById('confirmImportBtn');
+    if (!file) {
+      preview.innerHTML = '';
+      confirmBtn.disabled = true;
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const content = e.target.result;
+      try {
+        let companies = [];
+        if (file.name.toLowerCase().endsWith('.json')) {
+          companies = this._parseJson(content);
+        } else {
+          companies = this._parseCsv(content);
+        }
+        /* خزّن المؤقت على window لتستخدمه confirmImport */
+        this._pendingImport = this._validateCompanies(companies);
+        this._renderImportPreview();
+      } catch (err) {
+        preview.innerHTML = `<div class="alert alert-danger">فشل قراءة الملف: ${Utils.esc(err.message)}</div>`;
+        confirmBtn.disabled = true;
+        this._pendingImport = null;
+      }
+    };
+    reader.onerror = () => {
+      preview.innerHTML = `<div class="alert alert-danger">تعذّر قراءة الملف. حاول مرة أخرى.</div>`;
+      confirmBtn.disabled = true;
+    };
+    reader.readAsText(file, 'utf-8');
+  },
+
+  /* قراءة CSV: يدعم أول سطر كرأس إن وُجد (عربي أو إنجليزي) */
+  _parseCsv(content) {
+    const lines = content.replace(/\r\n/g, '\n').split('\n').filter(l => l.trim() !== '');
+    if (!lines.length) return [];
+
+    /* كشف إن كان السطر الأول رؤوس أعمدة */
+    const firstLine = lines[0];
+    const firstCells = this._splitCsvLine(firstLine).map(c => c.trim());
+    const isHeader = firstCells.some(c =>
+      /^(الاسم|name|الكود|code|company|أقصى|joints|المقاسات|الجرامات|الأنواع|المشاكل|الحالة|ملاحظات)/i.test(c)
+    );
+
+    const startIdx = isHeader ? 1 : 0;
+    const out = [];
+    for (let i = startIdx; i < lines.length; i++) {
+      const cells = this._splitCsvLine(lines[i]);
+      /* بناءً على ترتيب الـ CSV_HEADERS */
+      out.push({
+        name: (cells[0] || '').trim(),
+        code: (cells[1] || '').trim().toUpperCase(),
+        maxJoints: cells[2] ? parseInt(cells[2]) : 3,
+        allowedSizes: this._splitMulti(cells[3]),
+        allowedGrams: this._splitMulti(cells[4]).map(Number).filter(n => !isNaN(n)),
+        allowedTypes: this._splitMulti(cells[5]),
+        forbiddenProblems: this._splitMulti(cells[6]),
+        active: this._parseActive(cells[7]),
+        notes: (cells[8] || '').trim()
+      });
+    }
+    return out;
+  },
+
+  /* قراءة JSON: يقبل مصفوفة شركات أو كائن { companies: [...] } */
+  _parseJson(content) {
+    const parsed = JSON.parse(content);
+    const arr = Array.isArray(parsed) ? parsed : (parsed.companies || parsed.data || []);
+    if (!Array.isArray(arr)) throw new Error('الملف لا يحتوي على مصفوفة شركات');
+    /* تسوية المفاتيح العربية/الإنجليزية */
+    return arr.map(c => ({
+      name: (c.name || c['الاسم'] || '').trim(),
+      code: (c.code || c['الكود'] || '').trim().toUpperCase(),
+      maxJoints: c.maxJoints || c['أقصى وصلات'] || 3,
+      allowedSizes: this._splitMulti((c.allowedSizes || c['المقاسات'] || []).join ? (c.allowedSizes || []).join('|') : (c.allowedSizes || '').toString()),
+      allowedGrams: (c.allowedGrams || c['الجرامات'] || []).map(n => parseInt(n)).filter(n => !isNaN(n)),
+      allowedTypes: c.allowedTypes || c['الأنواع'] || [],
+      forbiddenProblems: c.forbiddenProblems || c['المشاكل الممنوعة'] || [],
+      active: c.active !== undefined ? c.active : (c['الحالة'] ? this._parseActive(c['الحالة']) : true),
+      notes: (c.notes || c['ملاحظات'] || '').trim()
+    }));
+  },
+
+  /* فاصل خلايا CSV بسيط يحترم علامات الاقتباس المزدوجة */
+  _splitCsvLine(line) {
+    const out = [];
+    let cur = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') {
+        if (inQuotes && line[i + 1] === '"') { cur += '"'; i++; }
+        else inQuotes = !inQuotes;
+      } else if (ch === ',' && !inQuotes) {
+        out.push(cur); cur = '';
+      } else {
+        cur += ch;
+      }
+    }
+    out.push(cur);
+    return out;
+  },
+
+  /* تقسيم قيمة مفصولة بـ | أو ، أو , */
+  _splitMulti(val) {
+    if (!val) return [];
+    if (Array.isArray(val)) return val.map(v => String(v).trim()).filter(Boolean);
+    return String(val).split(/[|،,]/).map(s => s.trim()).filter(Boolean);
+  },
+
+  /* تفسير قيمة الحالة نصياً */
+  _parseActive(val) {
+    if (typeof val === 'boolean') return val;
+    if (!val) return true;
+    const s = String(val).trim().toLowerCase();
+    if (['false', '0', 'متوقفة', 'موقوفة', 'مو قوف', 'inactive', 'disabled'].includes(s)) return false;
+    return true;
+  },
+
+  /* تحقق من كل شركة: تطبيع القيم + كشف التكرار + كشف المشاكل غير الموجودة */
+  _validateCompanies(items) {
+    const existingCodes = new Set(Storage.list('companies').map(c => c.code));
+    const seenCodes = new Set();
+    const problems = Storage.list('problems');
+
+    return items.map((item, idx) => {
+      const row = idx + (item.__rowOffset || 0) + 1; /* رقم السطر للتقرير */
+      const errors = [];
+
+      if (!item.name) errors.push('الاسم مطلوب');
+      if (!item.code) errors.push('الكود مطلوب');
+      if (isNaN(item.maxJoints) || item.maxJoints < 0 || item.maxJoints > 99) {
+        errors.push('أقصى وصلات غير صالح');
+      }
+
+      /* تكرار مع الكود بين الأسطر المستوردة */
+      if (item.code && seenCodes.has(item.code)) {
+        errors.push(`الكود ${item.code} مكرر داخل الملف`);
+      }
+      /* تكرار مع كود موجود بالفعل */
+      if (item.code && existingCodes.has(item.code)) {
+        errors.push(`الكود ${item.code} مستخدم مسبقاً في النظام`);
+      }
+      if (item.code) seenCodes.add(item.code);
+
+      /* حل المشاكل الممنوعة من اسم إلى id */
+      const resolvedProblems = (item.forbiddenProblems || []).map(pName => {
+        const byId = problems.find(p => p.id === pName);
+        if (byId) return pName;
+        const byName = problems.find(p => p.name === pName);
+        if (byName) return byName.id;
+        errors.push(`المشكلة "${pName}" غير موجودة في النظام`);
+        return null;
+      }).filter(Boolean);
+
+      return {
+        ...item,
+        forbiddenProblems: resolvedProblems,
+        __row: row,
+        __valid: errors.length === 0,
+        __errors: errors
+      };
+    });
+  },
+
+  _renderImportPreview() {
+    const preview = document.getElementById('importPreview');
+    const confirmBtn = document.getElementById('confirmImportBtn');
+    if (!this._pendingImport || !this._pendingImport.length) {
+      preview.innerHTML = `<div class="alert alert-warning">لا توجد شركات في الملف. تأكد من صيغة الملف.</div>`;
+      confirmBtn.disabled = true;
+      return;
+    }
+    const valid = this._pendingImport.filter(c => c.__valid);
+    const invalid = this._pendingImport.filter(c => !c.__valid);
+    confirmBtn.disabled = valid.length === 0;
+
+    let html = `
+      <div class="grid-2 mb-3">
+        <div class="alert alert-success"><strong>شركات صالحة:</strong> ${valid.length}</div>
+        <div class="alert ${invalid.length ? 'alert-danger' : 'alert-info'}"><strong>شركات بها أخطاء:</strong> ${invalid.length}</div>
+      </div>
+    `;
+
+    if (valid.length) {
+      html += `<h4 class="mb-2" style="color:var(--c-green)">سيتم استيرادها</h4>`;
+      html += `<div class="table-wrap mb-3"><table class="data-table"><thead><tr>
+        <th>#</th><th>الاسم</th><th>الكود</th><th>أقصى وصلات</th><th>المقاسات</th><th>الجرامات</th><th>الأنواع</th><th>الحالة</th>
+      </tr></thead><tbody>`;
+      valid.forEach(c => {
+        html += `<tr>
+          <td>${c.__row}</td>
+          <td class="fw-600">${Utils.esc(c.name)}</td>
+          <td>${Utils.esc(c.code)}</td>
+          <td>${c.maxJoints}</td>
+          <td>${(c.allowedSizes || []).join('، ') || 'الكل'}</td>
+          <td>${(c.allowedGrams || []).join('، ') || 'الكل'}</td>
+          <td>${(c.allowedTypes || []).join('، ') || 'الكل'}</td>
+          <td><span class="badge ${c.active ? 'badge-green' : 'badge-gray'}">${c.active ? 'نشطة' : 'متوقفة'}</span></td>
+        </tr>`;
+      });
+      html += `</tbody></table></div>`;
+    }
+
+    if (invalid.length) {
+      html += `<h4 class="mb-2" style="color:var(--c-red)">مرفوضة بسبب أخطاء</h4>`;
+      html += `<div class="table-wrap"><table class="data-table"><thead><tr>
+        <th>#</th><th>الاسم</th><th>الكود</th><th>الأخطاء</th>
+      </tr></thead><tbody>`;
+      invalid.forEach(c => {
+        html += `<tr>
+          <td>${c.__row}</td>
+          <td>${Utils.esc(c.name || '—')}</td>
+          <td>${Utils.esc(c.code || '—')}</td>
+          <td class="text-danger" style="font-size:12px">${c.__errors.map(Utils.esc).join('؛ ')}</td>
+        </tr>`;
+      });
+      html += `</tbody></table></div>`;
+    }
+    preview.innerHTML = html;
+  },
+
+  confirmImport() {
+    if (!this._pendingImport) return;
+    const valid = this._pendingImport.filter(c => c.__valid);
+    if (!valid.length) {
+      Toast.error('لا يوجد ما يُستورد', 'كل الصفوف بها أخطاء');
+      return;
+    }
+    let added = 0;
+    valid.forEach(c => {
+      const item = {
+        name: c.name,
+        code: c.code,
+        maxJoints: c.maxJoints,
+        allowedSizes: c.allowedSizes,
+        allowedGrams: c.allowedGrams,
+        allowedTypes: c.allowedTypes,
+        forbiddenProblems: c.forbiddenProblems,
+        notes: c.notes,
+        active: c.active,
+        id: Utils.uid('c'),
+        createdAt: Utils.nowDateTime()
+      };
+      Storage.insert('companies', item);
+      Audit.log('create', 'company', item.id, { notes: `استيراد شركة ${item.name}` });
+      added++;
+    });
+
+    const invalid = this._pendingImport.filter(c => !c.__valid).length;
+    Modal.close();
+    Toast.success('تم الاستيراد', `تمت إضافة ${added} شركة${invalid ? ` • ${invalid} مرفوضة` : ''}`);
+    App.navigate('companies');
+    this._pendingImport = null;
   }
 };
