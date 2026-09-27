@@ -441,19 +441,19 @@ const Companies = {
   openImport() {
     const body = `
       <div class="alert alert-info">
-        <strong>استيراد شركات من ملف</strong>
+        <strong>استيراد شركات من ملف Excel</strong>
         <p style="margin-top:6px;font-size:13px">
-          الصيغ المدعومة: <code>CSV</code> و <code>JSON</code>.<br>
+          الصيغ المدعومة: <code>XLSX</code> (Excel) و <code>CSV</code> و <code>JSON</code>.<br>
           ارفع الملف لمعاينة الشركات قبل الحفظ. ستظهر أي أخطاء تحقق سطراً بسطر.
         </p>
       </div>
       <div class="form-grid mb-3">
         <div class="form-group">
           <label>ملف الشركات</label>
-          <input type="file" id="importFile" accept=".csv,.json,text/csv,application/json" class="form-control" onchange="Companies.onFilePicked(event)">
+          <input type="file" id="importFile" accept=".xlsx,.csv,.json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv,application/json" class="form-control" onchange="Companies.onFilePicked(event)">
         </div>
         <div class="form-group" style="display:flex;align-items:flex-end">
-          <button type="button" class="btn btn-outline" onclick="Companies.downloadTemplate()">⇩ تنزيل قالب CSV</button>
+          <button type="button" class="btn btn-outline" onclick="Companies.downloadTemplate()">⇩ تنزيل قالب Excel</button>
         </div>
       </div>
       <div id="importPreview"></div>
@@ -465,17 +465,43 @@ const Companies = {
     Modal.open('استيراد شركات', body, footer, 'lg');
   },
 
-  /* تنزيل قالب CSV مع صف تجريبي */
+  /* تنزيل قالب Excel (XLSX) — يستخدم SheetJS إن وُجد، وإلا CSV كاحتياط */
   downloadTemplate() {
     const headers = this.CSV_HEADERS;
     const sampleRows = [
-      ['شركة A', 'A', '3', '190|220|240', '125|150', 'فلوت|تست معالج', 'قطع|تلسكوب', 'نشطة', 'عميل مميز'],
-      ['شركة B', 'B', '5', '190', '125', 'فلوت', '', 'نشطة', ''],
-      ['شركة C', 'C', '4', '', '', '', '', 'متوقفة', 'تقبل كل المقاسات']
+      ['شركة A', 'A', 3, '190|220|240', '125|150', 'فلوت|تست معالج', 'قطع|تلسكوب', 'نشطة', 'عميل مميز'],
+      ['شركة B', 'B', 5, '190', '125', 'فلوت', '', 'نشطة', ''],
+      ['شركة C', 'C', 4, '', '', '', '', 'متوقفة', 'تقبل كل المقاسات']
     ];
+
+    /* محاولة إنتاج XLSX عبر SheetJS إن وُجدت */
+    if (typeof XLSX !== 'undefined' && XLSX.utils && XLSX.write) {
+      try {
+        const ws = XLSX.utils.aoa_to_sheet([headers, ...sampleRows]);
+        /* ضبط عرض الأعمدة لرؤية مريحة */
+        ws['!cols'] = headers.map(() => ({ wch: 18 }));
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'الشركات');
+        const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+        const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'companies-template.xlsx';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        Toast.success('تم', 'تم تنزيل قالب Excel');
+        return;
+      } catch (e) {
+        console.warn('XLSX template generation failed, falling back to CSV:', e);
+      }
+    }
+    /* احتياط: CSV */
     const csv = Utils.arrayToCSV(sampleRows, headers);
     Utils.download('companies-template.csv', csv, 'text/csv');
-    Toast.success('تم', 'تم تنزيل القالب');
+    Toast.success('تم', 'تم تنزيل القالب (CSV)');
   },
 
   /* اختيار الملف → قراءة + تحويل + معاينة */
@@ -488,6 +514,17 @@ const Companies = {
       confirmBtn.disabled = true;
       return;
     }
+
+    /* للـ XLSX: قراءة كـ ArrayBuffer ثم تحليل بـ SheetJS */
+    const isXlsx = /\.xlsx$/i.test(file.name) ||
+      file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+    if (isXlsx) {
+      this._readXlsx(file, preview, confirmBtn);
+      return;
+    }
+
+    /* للـ CSV / JSON: قراءة كـ Text */
     const reader = new FileReader();
     reader.onload = (e) => {
       const content = e.target.result;
@@ -498,7 +535,6 @@ const Companies = {
         } else {
           companies = this._parseCsv(content);
         }
-        /* خزّن المؤقت على window لتستخدمه confirmImport */
         this._pendingImport = this._validateCompanies(companies);
         this._renderImportPreview();
       } catch (err) {
@@ -512,6 +548,48 @@ const Companies = {
       confirmBtn.disabled = true;
     };
     reader.readAsText(file, 'utf-8');
+  },
+
+  /* قراءة XLSX عبر SheetJS: تحويل أول ورقة إلى مصفوفة كائنات */
+  _readXlsx(file, preview, confirmBtn) {
+    if (typeof XLSX === 'undefined' || !XLSX.read) {
+      preview.innerHTML = `<div class="alert alert-danger">مكتبة قراءة Excel غير محمّلة. حمّل lib/xlsx.full.min.js.</div>`;
+      confirmBtn.disabled = true;
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target.result);
+        const wb = XLSX.read(data, { type: 'array' });
+        const sheetName = wb.SheetNames[0];
+        const ws = wb.Sheets[sheetName];
+        /* تحويل الورقة لصفوف: header يفترض أن السطر الأول رؤوس أعمدة */
+        const rows = XLSX.utils.sheet_to_json(ws, { defval: '', raw: false });
+        const companies = rows.map(r => ({
+          name: (r['الاسم'] || r['name'] || r['Name'] || '').toString().trim(),
+          code: (r['الكود'] || r['code'] || r['Code'] || '').toString().trim().toUpperCase(),
+          maxJoints: parseInt(r['أقصى وصلات'] || r['maxJoints'] || r['joints'] || 3),
+          allowedSizes: this._splitMulti(r['المقاسات'] || r['allowedSizes'] || ''),
+          allowedGrams: this._splitMulti(r['الجرامات'] || r['allowedGrams'] || '').map(Number).filter(n => !isNaN(n)),
+          allowedTypes: this._splitMulti(r['الأنواع'] || r['allowedTypes'] || ''),
+          forbiddenProblems: this._splitMulti(r['المشاكل الممنوعة'] || r['forbiddenProblems'] || ''),
+          active: this._parseActive(r['الحالة'] !== undefined ? r['الحالة'] : (r['active'] !== undefined ? r['active'] : 'نشطة')),
+          notes: (r['ملاحظات'] || r['notes'] || '').toString().trim()
+        }));
+        this._pendingImport = this._validateCompanies(companies);
+        this._renderImportPreview();
+      } catch (err) {
+        preview.innerHTML = `<div class="alert alert-danger">فشل قراءة ملف Excel: ${Utils.esc(err.message)}</div>`;
+        confirmBtn.disabled = true;
+        this._pendingImport = null;
+      }
+    };
+    reader.onerror = () => {
+      preview.innerHTML = `<div class="alert alert-danger">تعذّر قراءة ملف Excel. حاول مرة أخرى.</div>`;
+      confirmBtn.disabled = true;
+    };
+    reader.readAsArrayBuffer(file);
   },
 
   /* قراءة CSV: يدعم أول سطر كرأس إن وُجد (عربي أو إنجليزي) */
