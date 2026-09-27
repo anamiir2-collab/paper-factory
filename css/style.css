@@ -3,22 +3,22 @@
    ============================================ */
 
 :root {
-  /* الألوان */
-  --c-bg: #f4f5f7;
+  /* الألوان — لوحة عصرية محدّثة (Kehoe Indigo + Sky + Teal accent) */
+  --c-bg: #eef2f7;
   --c-surface: #ffffff;
-  --c-border: #e1e5ea;
+  --c-border: #dde3ec;
   --c-text: #1a2332;
-  --c-text-muted: #6b7280;
-  --c-navy: #1e3a5f;
-  --c-navy-dark: #14283f;
-  --c-blue: #2563eb;
-  --c-blue-light: #dbeafe;
-  --c-gold: #d4a017;
+  --c-text-muted: #5c6677;
+  --c-navy: #0f2942;          /* كحلي أعمق عصري */
+  --c-navy-dark: #081b2d;     /* ظل أعمق */
+  --c-blue: #0ea5e9;          /* سماوي عصري بدل الملكي */
+  --c-blue-light: #e0f2fe;   /* فاتح مطابق */
+  --c-gold: #d4a017;          /* ذهبي — يبقى كما هو للهوية */
   --c-gold-light: #fef3c7;
-  --c-green: #16a34a;
-  --c-green-light: #dcfce7;
-  --c-red: #dc2626;
-  --c-red-light: #fee2e2;
+  --c-green: #0d9488;         /* تركواز ناضج بدل الأخضر العادي */
+  --c-green-light: #ccfbf1;
+  --c-red: #e11d48;           /* وردي/أحمر دافئ */
+  --c-red-light: #ffe4e6;
   --c-orange: #ea580c;
   --c-orange-light: #ffedd5;
   --c-gray-50: #f9fafb;
@@ -30,9 +30,9 @@
   --c-gray-900: #111827;
 
   /* الظلال */
-  --shadow-sm: 0 1px 2px rgba(0,0,0,.04);
-  --shadow-md: 0 2px 8px rgba(0,0,0,.06);
-  --shadow-lg: 0 8px 24px rgba(0,0,0,.08);
+  --shadow-sm: 0 1px 2px rgba(15,41,66,.04);
+  --shadow-md: 0 2px 8px rgba(15,41,66,.08);
+  --shadow-lg: 0 12px 28px rgba(15,41,66,.10);
 
   /* الأبعاد */
   --sidebar-w: 260px;

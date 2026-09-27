@@ -47,7 +47,6 @@ const Inventory = {
                 <th>الوزن</th>
                 <th>الوصلات</th>
                 <th>الحالة</th>
-                <th>الشركات المسموح لها</th>
                 <th class="hide-mobile">المشكلة</th>
                 <th></th>
               </tr></thead>
@@ -88,12 +87,11 @@ const Inventory = {
 
     const tbody = document.getElementById('invTbody');
     if (!coils.length) {
-      tbody.innerHTML = `<tr><td colspan="11"><div class="empty-state"><div class="empty-icon">∅</div><p>لا توجد بكر مطابقة</p></div></td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="10"><div class="empty-state"><div class="empty-icon">∅</div><p>لا توجد بكر مطابقة</p></div></td></tr>`;
       return;
     }
     tbody.innerHTML = coils.map(c => {
       const st = Utils.COIL_STATUS[c.status] || { label: c.status, badge: 'badge-gray' };
-      const allowedCompanies = this._getAllowedCompanies(c);
       return `<tr>
         <td class="fw-600">${Utils.esc(c.code)}</td>
         <td>${Utils.esc(c.parentRollNumber)}</td>
@@ -103,10 +101,6 @@ const Inventory = {
         <td>${Utils.formatNum(c.weight)} كجم</td>
         <td>${c.joints}</td>
         <td><span class="badge ${st.badge}">${st.label}</span></td>
-        <td>${allowedCompanies.length ? allowedCompanies.map(cid => {
-          const co = Storage.find('companies', cid);
-          return co ? `<span class="badge badge-blue" style="margin:2px">${Utils.esc(co.name)}</span>` : '';
-        }).join('') : '<span class="text-muted">—</span>'}</td>
         <td class="hide-mobile">${c.problemId && c.problemId !== 'p_none' ? `<span class="badge badge-gold">${Utils.esc(c.problemName)}</span>` : '—'}</td>
         <td><button class="btn btn-outline btn-sm" onclick="Inventory.viewCoil('${c.id}')">تفاصيل</button></td>
       </tr>`;
@@ -294,43 +288,25 @@ const Inventory = {
     }
     timelineHtml += '</div>';
 
-    /* قائمة الشركات المسموح لها */
-    const allCompanies = Storage.list('companies').filter(co => co.active);
-    const companiesHtml = allCompanies.map(co => {
-      const check = this.isAllowedForCompany(c, co);
-      return `<tr>
-        <td>${Utils.esc(co.name)}</td>
-        <td>${check.allowed ? '<span class="badge badge-green">✓ مسموحة</span>' : '<span class="badge badge-red">✕ ممنوعة</span>'}</td>
-        <td class="text-muted" style="font-size:11px">${Utils.esc(check.reason)}</td>
-      </tr>`;
-    }).join('');
+    /* ملاحظة: قسم "الشركات المسموح/الممنوع لها" أُزيل من واجهة المستخدم.
+       النظام الداخلي (isAllowedForCompany / allowedCompanyId) يظل يعمل خلف الكواليس
+       لسريان قواعد الصرف والموافقات الاستثنائية من الجودة. */
 
     const body = `
-      <div class="grid-2">
-        <div>
-          <h4 style="margin-bottom:8px;color:var(--c-navy)">بيانات البكرة</h4>
-          <table class="data-table">
-            <tr><th>الكود</th><td class="fw-600">${Utils.esc(c.code)}</td></tr>
-            <tr><th>الرول الأم</th><td>${Utils.esc(c.parentRollNumber)}</td></tr>
-            <tr><th>المقاس</th><td>${Utils.esc(c.size)}</td></tr>
-            <tr><th>الجرام</th><td>${Utils.esc(c.gram)} GSM</td></tr>
-            <tr><th>النوع</th><td>${Utils.esc(c.type)}</td></tr>
-            <tr><th>الوزن</th><td>${Utils.formatNum(c.weight)} كجم</td></tr>
-            <tr><th>عدد الوصلات</th><td><span class="badge ${c.joints > 3 ? 'badge-gold' : 'badge-gray'}">${c.joints}</span></td></tr>
-            <tr><th>الحالة</th><td><span class="badge ${st.badge}">${st.label}</span></td></tr>
-            <tr><th>المشكلة</th><td>${c.problemId && c.problemId !== 'p_none' ? `<span class="badge badge-gold">${Utils.esc(c.problemName)}</span>` : '—'}</td></tr>
-            <tr><th>ملاحظات</th><td>${Utils.esc(c.notes) || '—'}</td></tr>
-          </table>
-        </div>
-        <div>
-          <h4 style="margin-bottom:8px;color:var(--c-navy)">الشركات المسموح/الممنوع لها</h4>
-          <div class="table-wrap">
-            <table class="data-table">
-              <thead><tr><th>الشركة</th><th>الحالة</th><th>السبب</th></tr></thead>
-              <tbody>${companiesHtml}</tbody>
-            </table>
-          </div>
-        </div>
+      <div>
+        <h4 style="margin-bottom:8px;color:var(--c-navy)">بيانات البكرة</h4>
+        <table class="data-table">
+          <tr><th>الكود</th><td class="fw-600">${Utils.esc(c.code)}</td></tr>
+          <tr><th>الرول الأم</th><td>${Utils.esc(c.parentRollNumber)}</td></tr>
+          <tr><th>المقاس</th><td>${Utils.esc(c.size)}</td></tr>
+          <tr><th>الجرام</th><td>${Utils.esc(c.gram)} GSM</td></tr>
+          <tr><th>النوع</th><td>${Utils.esc(c.type)}</td></tr>
+          <tr><th>الوزن</th><td>${Utils.formatNum(c.weight)} كجم</td></tr>
+          <tr><th>عدد الوصلات</th><td><span class="badge ${c.joints > 3 ? 'badge-gold' : 'badge-gray'}">${c.joints}</span></td></tr>
+          <tr><th>الحالة</th><td><span class="badge ${st.badge}">${st.label}</span></td></tr>
+          <tr><th>المشكلة</th><td>${c.problemId && c.problemId !== 'p_none' ? `<span class="badge badge-gold">${Utils.esc(c.problemName)}</span>` : '—'}</td></tr>
+          <tr><th>ملاحظات</th><td>${Utils.esc(c.notes) || '—'}</td></tr>
+        </table>
       </div>
 
       <h4 class="mt-4 mb-2" style="color:var(--c-navy)">📅 التتبع الزمني للبكرة</h4>

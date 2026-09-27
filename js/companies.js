@@ -47,6 +47,7 @@ const Companies = {
                       <button class="btn btn-outline btn-sm" onclick="Companies.view('${c.id}')">عرض</button>
                       ${(Auth.isAdmin() || Auth.can('sales')) ? `<button class="btn btn-outline btn-sm" onclick="Companies.openForm('${c.id}')">✎</button>` : ''}
                       ${Auth.isAdmin() ? `<button class="btn btn-ghost btn-sm" onclick="Companies.toggle('${c.id}')">${c.active ? '⏸' : '▶'}</button>` : ''}
+                      ${Auth.isAdmin() ? `<button class="btn btn-danger btn-sm" onclick="Companies.confirmDelete('${c.id}')">حذف</button>` : ''}
                     </td>
                   </tr>
                 `).join('')}
@@ -431,6 +432,104 @@ const Companies = {
       Toast.success('تم', `تم ${c.active ? 'إيقاف' : 'تنشيط'} الشركة`);
       App.navigate('companies');
     });
+  },
+
+  /* ============ حذف الشركة (Admin فقط) ============ */
+
+  confirmDelete(id) {
+    /* تحقق فعلي من الصلاحية داخل الدالة — ليس فقط إخفاء الزر */
+    if (!Auth.isAdmin()) {
+      Toast.error('صلاحية مرفوضة', 'هذه العملية متاحة للمدير فقط');
+      return;
+    }
+    const c = Storage.find('companies', id);
+    if (!c) {
+      Toast.error('غير موجود', 'الشركة غير موجودة');
+      return;
+    }
+
+    /* إحصاء التأثيرات قبل التأكيد ليعرف المستخدم ما الذي سيحدث */
+    const specsCount = Storage.list('qualitySpecs').filter(s => s.companyId === id).length;
+    const coilsWithAllowed = Storage.list('coils').filter(co => co.allowedCompanyId === id).length;
+
+    const body = `
+      <div class="alert alert-danger">
+        <strong>تحذير: حذف نهائي</strong>
+        <p style="margin-top:6px;font-size:13px">
+          أنت على وشك حذف الشركة <strong>${Utils.esc(c.name)}</strong> (${Utils.esc(c.code)}).
+          هذه العملية <strong>لا يمكن التراجع عنها</strong>.
+        </p>
+      </div>
+      <div class="alert alert-warning">
+        <strong>الإجراءات التلقائية:</strong>
+        <ul style="margin:6px 0 0 16px;font-size:13px;line-height:1.8">
+          <li>حذف المواصفات الخاصة بالشركة: <strong>${specsCount}</strong> مواصفة${specsCount ? '' : ' (لا يوجد)'}</li>
+          <li>إزالة ربط <code>allowedCompanyId</code> من <strong>${coilsWithAllowed}</strong> بكرة — البكر نفسها <strong>لن تُحذف</strong></li>
+          <li>تسجيل العملية في سجل العمليات (Audit)</li>
+          <li>لا يتم حذف سجلات الإنتاج أو المبيعات أو البكرات</li>
+        </ul>
+      </div>
+    `;
+    const footer = `
+      <button class="btn btn-ghost" onclick="Modal.close()">إلغاء</button>
+      <button class="btn btn-danger" id="confirmDeleteBtn">نعم، احذف نهائياً</button>
+    `;
+    Modal.open(`حذف شركة ${c.name}`, body, footer, 'sm');
+    document.getElementById('confirmDeleteBtn').addEventListener('click', () => {
+      Modal.close();
+      this._doDelete(id, c);
+    });
+  },
+
+  /* التنفيذ الفعلي للحذف */
+  _doDelete(id, c) {
+    /* تحقق إضافي من الصلاحية داخل التنفيذ أيضاً */
+    if (!Auth.isAdmin()) {
+      Toast.error('صلاحية مرفوضة', 'هذه العملية متاحة للمدير فقط');
+      return;
+    }
+
+    const companyName = c ? c.name : 'شركة';
+    const companyCode = c ? c.code : '';
+
+    /* 1) حذف مواصفات الجودة المرتبطة */
+    const specs = Storage.list('qualitySpecs');
+    const remainingSpecs = specs.filter(s => s.companyId !== id);
+    const deletedSpecs = specs.length - remainingSpecs.length;
+    Storage.set('qualitySpecs', remainingSpecs);
+
+    /* 2) إزالة ربط allowedCompanyId من البكرات (بدون حذف البكرات) */
+    const coils = Storage.list('coils');
+    let clearedCoils = 0;
+    const updatedCoils = coils.map(co => {
+      if (co.allowedCompanyId === id) {
+        clearedCoils++;
+        return { ...co, allowedCompanyId: null };
+      }
+      return co;
+    });
+    Storage.set('coils', updatedCoils);
+
+    /* 3) حذف الشركة من قائمة الشركات */
+    const ok = Storage.delete('companies', id);
+
+    if (!ok) {
+      Toast.error('فشل', 'تعذّر حذف الشركة');
+      return;
+    }
+
+    /* 4) تسجيل العملية في الـ Audit */
+    Audit.log('delete', 'company', id, {
+      oldValue: `${companyName} (${companyCode})`,
+      newValue: 'محذوفة',
+      notes: `حذف الشركة ${companyName} — مواصفات محذوفة: ${deletedSpecs} • بكرات تنظيف allowedCompanyId: ${clearedCoils}`
+    });
+
+    /* 5) رسالة نجاح */
+    Toast.success('تم الحذف', `تم حذف ${companyName}${deletedSpecs ? ` • ${deletedSpecs} مواصفة` : ''}${clearedCoils ? ` • ${clearedCoils} بكرة تنظّيف ربطها` : ''}`);
+
+    /* 6) تحديث القائمة تلقائياً */
+    App.navigate('companies');
   },
 
   /* ============ استيراد الشركات من ملف CSV / JSON ============ */
