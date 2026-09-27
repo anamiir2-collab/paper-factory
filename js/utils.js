@@ -229,6 +229,18 @@ const Utils = {
     URL.revokeObjectURL(url);
   },
 
+  /* تنزيل ملف ثنائي (Blob مباشرة) — XLSX, ZIP, إلخ */
+  downloadBlob(filename, blob) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 100);
+  },
+
   /* تحويل Array إلى CSV */
   arrayToCSV(rows, headers) {
     const lines = [];
@@ -238,6 +250,41 @@ const Utils = {
       lines.push(arr.map(v => this.csvEscape(v)).join(','));
     });
     return '\ufeff' + lines.join('\n'); // BOM for Excel
+  },
+
+  /* توليد ملف XLSX من جدول واحد (headers + rows)
+     يعتمد على مكتبة SheetJS (XLSX) المحمّلة في lib/xlsx.full.min.js
+     ترجع Blob جاهزة للتنزيل */
+  aoaToXlsxBlob(headers, rows, sheetName = 'Sheet1') {
+    if (typeof XLSX === 'undefined') {
+      throw new Error('مكتبة XLSX غير محمّلة');
+    }
+    const aoa = [headers, ...rows];
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = headers.map(() => ({ wch: 18 }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, sheetName.substring(0, 31)); /* اسم الورقة ≤ 31 حرف */
+    const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    return new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  },
+
+  /* توليد ملف XLSX بأوراق متعددة (workbook)
+     sheets: [{ name, headers, rows }]
+     ترجع Blob جاهزة */
+  multiSheetXlsxBlob(sheets) {
+    if (typeof XLSX === 'undefined') {
+      throw new Error('مكتبة XLSX غير محمّلة');
+    }
+    const wb = XLSX.utils.book_new();
+    sheets.forEach(s => {
+      const aoa = [s.headers, ...s.rows];
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
+      ws['!cols'] = s.headers.map(() => ({ wch: 18 }));
+      const name = (s.name || 'Sheet').substring(0, 31);
+      XLSX.utils.book_append_sheet(wb, ws, name);
+    });
+    const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    return new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   },
 
   /* debounce */

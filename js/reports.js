@@ -54,7 +54,7 @@ const Reports = {
             </div>
           </div>
           <button class="btn btn-primary" onclick="Reports.load()">📊 توليد التقرير</button>
-          <button class="btn btn-outline" onclick="Reports.exportCSV()">💾 تصدير CSV</button>
+          <button class="btn btn-outline" onclick="Reports.exportExcel()">💾 تصدير Excel</button>
         </div>
       </div>
 
@@ -590,50 +590,61 @@ const Reports = {
     window.print();
   },
 
-  exportCSV() {
+  exportExcel() {
     const type = document.getElementById('repType').value;
     const { start, end } = this._getDateRange();
     let rows = [];
     let headers = [];
+    let sheetName = 'تقرير';
 
     switch (type) {
       case 'production':
+        sheetName = 'الإنتاج';
         headers = ['رقم الرول','التاريخ','الوقت','الوردية','نوع الورق','الجرام','الوزن','العرض','الحالة'];
         rows = Storage.list('rolls').filter(r =>
           this._inRange(r.date + 'T' + (r.time || '00:00'), start, end) && !r.archived
         ).map(r => [r.rollNumber, r.date, r.time, r.shift, r.paperType, r.gram, r.weight, r.width, r.status]);
         break;
       case 'quality':
-        headers = ['الرول','النوع','التاريخ','النتيجة'];
+        sheetName = 'الجودة';
+        headers = ['الرول','الشركة','النوع','الجرام','التاريخ','النتيجة'];
         rows = Storage.list('qualityTests').filter(t =>
           this._inRange(t.createdAt, start, end)
-        ).map(t => [t.rollNumber, t.coilType, t.createdAt, t.overallPass ? 'مطابق' : 'غير مطابق']);
+        ).map(t => {
+          const co = t.companyId ? Storage.find('companies', t.companyId) : null;
+          return [t.rollNumber, co ? co.name : '—', t.coilType, t.gram ?? '—', t.createdAt, t.overallPass ? 'مطابق' : 'غير مطابق'];
+        });
         break;
       case 'cutting':
+        sheetName = 'القص';
         headers = ['الرول','عدد البكر','التاريخ'];
         rows = Storage.list('cutRolls').filter(c =>
           this._inRange(c.createdAt, start, end)
         ).map(c => [c.rollNumber, c.cutCount, c.createdAt]);
         break;
       case 'inventory':
+        sheetName = 'المخزن';
         headers = ['الكود','الرول الأم','المقاس','الجرام','النوع','الوزن','الوصلات','الحالة','المشكلة'];
         rows = Storage.list('coils').filter(c => !c.archived).map(c =>
           [c.code, c.parentRollNumber, c.size, c.gram, c.type, c.weight, c.joints,
            Utils.COIL_STATUS[c.status]?.label || c.status, c.problemName]);
         break;
       case 'sales':
+        sheetName = 'المبيعات';
         headers = ['البكرة','الشركة','الموظف','التاريخ','الوقت','ملاحظات'];
         rows = Storage.list('sales').filter(s =>
           this._inRange(s.date + 'T' + (s.time || '00:00'), start, end)
         ).map(s => [s.coilCode, s.companyName, s.employee, s.date, s.time, s.notes]);
         break;
       case 'shipments':
+        sheetName = 'الشحنات';
         headers = ['أمر التحميل','الشركة','التاريخ','الوقت','السيارة','السائق','عدد البكر','الوزن'];
         rows = Storage.list('shipments').filter(s =>
           this._inRange(s.date + 'T' + (s.time || '00:00'), start, end)
         ).map(s => [s.orderNumber, s.companyName, s.date, s.time, s.vehicle, s.driver, s.coilCount, s.totalWeight]);
         break;
       case 'audit':
+        sheetName = 'سجل العمليات';
         headers = ['العملية','الكيان','المستخدم','التاريخ','الوقت','تفاصيل'];
         rows = Audit.list().filter(l =>
           this._inRange(l.date + 'T' + (l.time || '00:00'), start, end)
@@ -644,9 +655,19 @@ const Reports = {
         rows = [];
     }
 
-    const csv = Utils.arrayToCSV(rows, headers);
-    const filename = `report_${type}_${Utils.today()}.csv`;
-    Utils.download(filename, csv, 'text/csv');
-    Toast.success('تم التصدير', `تم تصدير التقرير (${rows.length} سجل)`);
+    try {
+      const blob = Utils.aoaToXlsxBlob(headers, rows, sheetName);
+      const filename = `report_${type}_${Utils.today()}.xlsx`;
+      Utils.downloadBlob(filename, blob);
+      Toast.success('تم التصدير', `تم تصدير التقرير إلى Excel (${rows.length} سجل)`);
+      Audit.log('backup_export', 'report', null, { notes: `تصدير Excel: ${sheetName} (${rows.length} سجل)` });
+    } catch (err) {
+      console.error('XLSX export failed:', err);
+      /* احتياط CSV */
+      const csv = Utils.arrayToCSV(rows, headers);
+      const filename = `report_${type}_${Utils.today()}.csv`;
+      Utils.download(filename, csv, 'text/csv');
+      Toast.warning('تم التصدير (CSV)', 'تعذّر توليد Excel، تم استخدام CSV كبديل');
+    }
   }
 };

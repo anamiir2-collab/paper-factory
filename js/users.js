@@ -254,12 +254,15 @@ const Users = {
           <div class="grid-2">
             <div>
               <h4 class="mb-2">تصدير البيانات</h4>
-              <p class="text-muted mb-2">حمّل نسخة JSON من جميع بيانات النظام.</p>
-              <button class="btn btn-primary" onclick="Users.exportBackup()">💾 تصدير البيانات</button>
+              <p class="text-muted mb-2">اختر الصيغة: Excel (xlsx) لأوراق متعددة قابلة للقراءة، أو JSON كنسخة احتياطية كاملة.</p>
+              <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <button class="btn btn-primary" onclick="Users.exportBackupExcel()">📊 تصدير Excel</button>
+                <button class="btn btn-outline" onclick="Users.exportBackup()">💾 تصدير JSON</button>
+              </div>
             </div>
             <div>
               <h4 class="mb-2">استيراد البيانات</h4>
-              <p class="text-muted mb-2">استرجع نسخة احتياطية (سيتم استبدال البيانات الحالية).</p>
+              <p class="text-muted mb-2">استرجع نسخة احتياطية JSON (سيتم استبدال البيانات الحالية).</p>
               <input type="file" id="importFile" accept=".json" class="form-control mb-2">
               <button class="btn btn-warning" onclick="Users.importBackup()">📂 استيراد البيانات</button>
             </div>
@@ -333,8 +336,201 @@ const Users = {
     const data = Storage.exportAll();
     const json = JSON.stringify(data, null, 2);
     Utils.download(`paper_factory_backup_${Utils.today()}.json`, json, 'application/json');
-    Audit.log('backup_export', 'setting', null, { notes: `تصدير نسخة احتياطية (${json.length} بايت)` });
-    Toast.success('تم التصدير', 'تم تنزيل ملف النسخة الاحتياطية');
+    Audit.log('backup_export', 'setting', null, { notes: `تصدير نسخة احتياطية JSON (${json.length} بايت)` });
+    Toast.success('تم التصدير', 'تم تنزيل ملف النسخة الاحتياطية JSON');
+  },
+
+  /* تصدير كل البيانات إلى ملف Excel واحد متعدد الأوراق
+     كل نوع بيانات في ورقة منفصلة (الشركات، البكر، الجودة، إلخ) */
+  exportBackupExcel() {
+    const today = Utils.today();
+    const sheets = [];
+
+    /* ورقة 1: المستخدمون */
+    sheets.push({
+      name: 'المستخدمون',
+      headers: ['الاسم','اسم المستخدم','الدور','الحالة','تاريخ الإنشاء'],
+      rows: Storage.list('users').map(u => [
+        u.name, u.username,
+        Utils.ROLES[u.role]?.label || u.role,
+        u.active ? 'نشط' : 'موقوف',
+        u.createdAt || ''
+      ])
+    });
+
+    /* ورقة 2: الشركات */
+    sheets.push({
+      name: 'الشركات',
+      headers: ['الاسم','الكود','أقصى وصلات','المقاسات','الجرامات','الأنواع','المشاكل الممنوعة','الحالة','ملاحظات','تاريخ الإنشاء'],
+      rows: Storage.list('companies').map(c => [
+        c.name, c.code, c.maxJoints,
+        (c.allowedSizes || []).join('، '),
+        (c.allowedGrams || []).join('، '),
+        (c.allowedTypes || []).join('، '),
+        (c.forbiddenProblems || []).map(p => {
+          const prob = Storage.find('problems', p);
+          return prob ? prob.name : p;
+        }).join('، '),
+        c.active ? 'نشطة' : 'متوقفة',
+        c.notes || '',
+        c.createdAt || ''
+      ])
+    });
+
+    /* ورقة 3: الرولات */
+    sheets.push({
+      name: 'الرولات',
+      headers: ['رقم الرول','التاريخ','الوقت','الوردية','نوع الورق','الجرام','الوزن','العرض','الحالة','ملاحظات','تاريخ الإنشاء'],
+      rows: Storage.list('rolls').map(r => [
+        r.rollNumber, r.date, r.time, r.shift, r.paperType, r.gram, r.weight, r.width,
+        Utils.ROLL_STATUS[r.status]?.label || r.status,
+        r.notes || '', r.createdAt || ''
+      ])
+    });
+
+    /* ورقة 4: البكر */
+    sheets.push({
+      name: 'البكر',
+      headers: ['الكود','الرول الأم','المقاس','الجرام','النوع','الوزن','الوصلات','الحالة','المشكلة','الشركة المسموح لها','تاريخ الإنشاء'],
+      rows: Storage.list('coils').map(c => {
+        const st = Utils.COIL_STATUS[c.status] || {};
+        const allowedCo = c.allowedCompanyId ? Storage.find('companies', c.allowedCompanyId) : null;
+        const reviewCo = c.reviewCompanyId ? Storage.find('companies', c.reviewCompanyId) : null;
+        return [
+          c.code, c.parentRollNumber, c.size, c.gram, c.type, c.weight, c.joints,
+          st.label || c.status,
+          c.problemName || '',
+          allowedCo ? allowedCo.name : (reviewCo ? `${reviewCo.name} (مراجعة)` : ''),
+          c.createdAt || ''
+        ];
+      })
+    });
+
+    /* ورقة 5: اختبارات الجودة */
+    sheets.push({
+      name: 'اختبارات الجودة',
+      headers: ['الرول','الشركة','نوع الورق','الجرام','الشد الطولي','الشد العرضي','الانفجار','التشرب','الرطوبة','SCT','الجرام الفعلي','النتيجة','الفاحص','التاريخ'],
+      rows: Storage.list('qualityTests').map(t => {
+        const co = t.companyId ? Storage.find('companies', t.companyId) : null;
+        const T = t.tests || {};
+        const cell = (k) => T[k] ? `${T[k].value} ${T[k].unit || ''}` : '';
+        const inspector = t.inspector ? Storage.find('users', t.inspector) : null;
+        return [
+          t.rollNumber,
+          co ? co.name : '—',
+          t.coilType,
+          t.gram ?? '—',
+          cell('tensileMD'),
+          cell('tensileCD'),
+          cell('burst'),
+          cell('absorbency'),
+          cell('moisture'),
+          cell('sct'),
+          cell('gram'),
+          t.overallPass ? 'مطابق' : 'غير مطابق',
+          inspector ? inspector.name : '—',
+          t.createdAt || ''
+        ];
+      })
+    });
+
+    /* ورقة 6: مواصفات الجودة */
+    sheets.push({
+      name: 'مواصفات الجودة',
+      headers: ['الشركة','نوع الورق','الجرام','الشد الطولي','الشد العرضي','الانفجار','التشرب','الرطوبة','SCT','حدود الجرام','تاريخ الإنشاء'],
+      rows: Storage.list('qualitySpecs').map(s => {
+        const co = s.companyId ? Storage.find('companies', s.companyId) : null;
+        const range = (k) => s[k] ? `${s[k].min ?? '—'} - ${s[k].max ?? '—'} ${s[k].unit || ''}` : '';
+        return [
+          co ? co.name : 'عامة',
+          s.paperType,
+          s.gramValue ?? '—',
+          range('tensileMD'),
+          range('tensileCD'),
+          range('burst'),
+          range('absorbency'),
+          range('moisture'),
+          range('sct'),
+          range('gram'),
+          s.createdAt || ''
+        ];
+      })
+    });
+
+    /* ورقة 7: المبيعات */
+    sheets.push({
+      name: 'المبيعات',
+      headers: ['البكرة','الشركة','الموظف','التاريخ','الوقت','ملاحظات','تاريخ الإنشاء'],
+      rows: Storage.list('sales').map(s => [
+        s.coilCode, s.companyName, s.employee, s.date, s.time, s.notes || '', s.createdAt || ''
+      ])
+    });
+
+    /* ورقة 8: الشحنات */
+    sheets.push({
+      name: 'الشحنات',
+      headers: ['أمر التحميل','الشركة','التاريخ','الوقت','السيارة','السائق','عدد البكر','الوزن الكلي','تاريخ الإنشاء'],
+      rows: Storage.list('shipments').map(s => [
+        s.orderNumber, s.companyName, s.date, s.time, s.vehicle, s.driver,
+        s.coilCount, s.totalWeight, s.createdAt || ''
+      ])
+    });
+
+    /* ورقة 9: المشاكل */
+    sheets.push({
+      name: 'المشاكل',
+      headers: ['المعرف','الاسم','درجة الخطورة','مخصصة'],
+      rows: Storage.list('problems').map(p => [
+        p.id, p.name,
+        Utils.SEVERITIES.find(s => s.value === p.severity)?.label || p.severity,
+        p.isCustom ? 'نعم' : 'لا (افتراضية)'
+      ])
+    });
+
+    /* ورقة 10: سجل العمليات */
+    sheets.push({
+      name: 'سجل العمليات',
+      headers: ['العملية','الكيان','المستخدم','التاريخ','الوقت','تفاصيل','قيمة قديمة','قيمة جديدة'],
+      rows: Storage.list('auditLogs').map(l => [
+        Audit.actionLabel(l.action),
+        Audit.entityLabel(l.entity),
+        l.user || '',
+        l.date || '',
+        l.time || '',
+        l.notes || '',
+        l.oldValue || '',
+        l.newValue || ''
+      ])
+    });
+
+    /* ورقة 11: الإعدادات + معلومات النسخة */
+    const settings = Storage.obj('settings');
+    sheets.push({
+      name: 'الإعدادات',
+      headers: ['المفتاح','القيمة'],
+      rows: [
+        ['اسم الشركة', settings.companyName || ''],
+        ['بداية يوم العمل', settings.workDayStart || ''],
+        ['حد المخزون المنخفض', settings.lowStockThreshold ?? ''],
+        ['العملة', settings.currency || ''],
+        ['المقاسات الافتراضية', (settings.defaultSizes || []).join('، ')],
+        ['الجرامات الافتراضية', (settings.defaultGrams || []).join('، ')],
+        ['أنواع الورق الافتراضية', (settings.defaultPaperTypes || []).join('، ')],
+        ['تاريخ التصدير', Utils.nowDateTime()],
+        ['إصدار النظام', '1.0']
+      ]
+    });
+
+    try {
+      const blob = Utils.multiSheetXlsxBlob(sheets);
+      const filename = `paper_factory_data_${today}.xlsx`;
+      Utils.downloadBlob(filename, blob);
+      Audit.log('backup_export', 'setting', null, { notes: `تصدير Excel شامل (${sheets.length} أوراق)` });
+      Toast.success('تم التصدير', `تم تنزيل ملف Excel بأوراق متعددة (${sheets.length} ورقة)`);
+    } catch (err) {
+      console.error('Excel export failed:', err);
+      Toast.error('فشل التصدير', 'تعذّر توليد ملف Excel: ' + err.message + '. حاول تصدير JSON كبديل.');
+    }
   },
 
   importBackup() {
